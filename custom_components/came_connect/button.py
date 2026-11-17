@@ -180,13 +180,40 @@ class CameBptAuxButton(_CameBptButtonBase):
         )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities) -> None:
-    if not BptDoorConfig.has_credentials(entry.options):
-        return
+class CameGatePartialOpenButton(ButtonEntity):
+    """Board-level partial (pedestrian) opening. The control board stops the
+    gate itself after its programmed partial-opening time, so the result does
+    not depend on cloud latency."""
 
+    _attr_has_entity_name = True
+    _attr_name = "Partial opening"
+    _attr_icon = "mdi:gate-arrow-right"
+
+    # CAME Connect automation command id for "partial opening"
+    COMMAND_PARTIAL_OPEN = 4
+
+    def __init__(self, client: CameConnectClient, device_id: str) -> None:
+        self._client = client
+        self._device_id = str(device_id)
+        self._attr_unique_id = f"came_gate_{self._device_id}_partial_open"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, self._device_id)})
+
+    async def async_press(self) -> None:
+        try:
+            await self._client.send_command(self._device_id, self.COMMAND_PARTIAL_OPEN)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(f"CAME partial opening failed: {err}") from err
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
     client: CameConnectClient = data["client"]
     device_id = data["device_id"]
+
+    async_add_entities([CameGatePartialOpenButton(client, device_id)])
+
+    if not BptDoorConfig.has_credentials(entry.options):
+        return
     metadata = None
     try:
         metadata = await client.async_get_bpt_device_metadata(device_id, dict(entry.options))
